@@ -1,0 +1,107 @@
+import os
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
+import shutil
+
+class WebsiteScraper:
+    def __init__(self, base_url, output_dir):
+        self.base_url = base_url
+        self.output_dir = output_dir
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        self.downloaded_files = set()
+        
+    def create_directories(self):
+        os.makedirs(self.output_dir, exist_ok=True)
+        os.makedirs(os.path.join(self.output_dir, 'assets'), exist_ok=True)
+        os.makedirs(os.path.join(self.output_dir, 'css'), exist_ok=True)
+        os.makedirs(os.path.join(self.output_dir, 'js'), exist_ok=True)
+        os.makedirs(os.path.join(self.output_dir, 'images'), exist_ok=True)
+        
+    def download_file(self, url, file_type='other'):
+        try:
+            response = self.session.get(url, timeout=10)
+            response.raise_for_status()
+            
+            parsed_url = urlparse(url)
+            filename = parsed_url.path.split('/')[-1]
+            
+            if not filename:
+                filename = 'index.html' if file_type == 'html' else 'file'
+                
+            if file_type == 'css':
+                filepath = os.path.join(self.output_dir, 'css', filename)
+            elif file_type == 'js':
+                filepath = os.path.join(self.output_dir, 'js', filename)
+            elif file_type == 'image':
+                filepath = os.path.join(self.output_dir, 'images', filename)
+            else:
+                filepath = os.path.join(self.output_dir, filename)
+                
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            
+            with open(filepath, 'wb') as f:
+                f.write(response.content)
+            return filepath
+        except Exception as e:
+            print(f"Error downloading {url}: {e}")
+            return None
+            
+    def update_html(self, html_content):
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Update image sources
+        for img in soup.find_all('img'):
+            if img.get('src'):
+                img_url = urljoin(self.base_url, img['src'])
+                self.download_file(img_url, 'image')
+                img['src'] = img['src'].replace(self.base_url, '').lstrip('/')
+                
+        # Update stylesheet links
+        for link in soup.find_all('link', {'rel': 'stylesheet'}):
+            if link.get('href'):
+                css_url = urljoin(self.base_url, link['href'])
+                self.download_file(css_url, 'css')
+                css_filename = css_url.split('/')[-1]
+                link['href'] = f'css/{css_filename}'
+                
+        # Update script sources
+        for script in soup.find_all('script'):
+            if script.get('src'):
+                js_url = urljoin(self.base_url, script['src'])
+                self.download_file(js_url, 'js')
+                js_filename = js_url.split('/')[-1]
+                script['src'] = f'js/{js_filename}'
+                
+        return str(soup.prettify())
+        
+    def scrape(self):
+        try:
+            print(f"Scraping {self.base_url}...")
+            self.create_directories()
+            
+            response = self.session.get(self.base_url, timeout=10)
+            response.raise_for_status()
+            
+            print("Fetching page content...")
+            updated_html = self.update_html(response.content)
+            
+            index_path = os.path.join(self.output_dir, 'index.html')
+            with open(index_path, 'w', encoding='utf-8') as f:
+                f.write(updated_html)
+                
+            print(f"✓ Website scraped successfully!")
+            print(f"✓ Files saved to: {self.output_dir}")
+            
+        except Exception as e:
+            print(f"Error: {e}")
+
+if __name__ == "__main__":
+    scraper = WebsiteScraper(
+        base_url='https://inodaya.in',
+        output_dir='C:\\projects\\inodaya-clone\\www.inodaya.in'
+    )
+    scraper.scrape()
